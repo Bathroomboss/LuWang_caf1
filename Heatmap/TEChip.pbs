@@ -1,0 +1,33 @@
+#!/bin/bash
+#$ -cwd
+#$ -S /bin/bash
+#$ -j y
+#$ -m n
+#$ -M liangyu@sibcb.ac.cn
+#$ -notify
+#$ -N te_chip
+
+date
+echo $File
+Filename=${File}_TE
+TEBowtie2index=/sibcb1/wuweilab1/wuwei2022/Wuwei/WangLuLab/TEBowtie2Index/TE
+TEChromSize=/sibcb1/wuweilab1/wuwei2022/Wuwei/WangLuLab/Drosophila_TE_full_with_HMS_GFPreporter.chromsize.txt
+DPATH=$PWD
+
+bowtie2 -p 24 -x ${TEBowtie2index} -1 fixed.fastq/${File}_cutadapt_1.fq.gz -2 fixed.fastq/${File}_cutadapt_2.fq.gz  -S bam.bowtie2/${Filename}.sam --no-unal
+samtools view -h -b -f 3 -F 12 -q 20 -F 256 bam.bowtie2/${Filename}.sam   -@ 10 > bam.bowtie2/${Filename}.bam
+samtools sort -@ 24 -o bam.bowtie2/${Filename}.sorted.bam bam.bowtie2/${Filename}.bam
+rm bam.bowtie2/${Filename}.bam
+samtools index bam.bowtie2/${Filename}.sorted.bam -@ 10
+java -Xms20g -Xmx20g -XX:ParallelGCThreads=4 -jar /sibcb1/wuweilab1/liangyu/Software/picard/picard.jar MarkDuplicates I=bam.bowtie2/${Filename}.sorted.bam O=bam.bowtie2/${Filename}.sorted.rmdup.bam M=bam.bowtie2/${Filename}.sorted.rmdup.matrix ASO=coordinate REMOVE_DUPLICATES=true 2>bam.bowtie2/${Filename}.sorted.rmdup.log
+bedtools bamtobed -i bam.bowtie2/${Filename}.sorted.rmdup.bam > bedfile/${Filename}.sorted.rmdup.bed
+
+rpm=$(zcat fixed.fastq/${File}_cutadapt_1.fq.gz|wc -l|cut -f 1 -d ' '|awk '{printf "%f\n",$1/4000000.0}')
+rpm=$(awk '{printf "%f\n",1/("'$rpm'")}' /sibcb1/wuweilab1/wuwei2022/Wuwei/Pipeline/tst.txt)
+bedtools genomecov -bg -scale $rpm -i bedfile/${Filename}.sorted.rmdup.bed -g ${TEChromSize}|bedtools sort -i stdin> bigwig/${Filename}.bedgraph
+bedGraphToBigWig bigwig/${Filename}.bedgraph ${TEChromSize} bigwig/${Filename}.bw
+
+rm bigwig/${Filename}.bedgraph
+rm bam.bowtie2/${Filename}.sam
+date
+
